@@ -6,9 +6,12 @@
   "dependencies": {
     "@angelengineering/filepicker": "file:../../packages/filepicker",
     "@angelengineering/flashlight": "file:../../packages/flashlight",
+    "@angelengineering/transcoder": "file:../../packages/transcoder",
     "@nativescript-community/perms": "^2.2.25",
     "@nativescript/core": "file:../../node_modules/@nativescript/core",
-    "@nstudio/nativescript-checkbox": "^2.0.5"
+    "@nstudio/nativescript-checkbox": "^2.0.5",
+    "@triniwiz/nativescript-ffmpeg": "file:../../node_modules/@triniwiz/nativescript-ffmpeg",
+    "nativescript-videoplayer": "^5.0.1"
   },
   "devDependencies": {
     "@nativescript/android": "~8.4.0",

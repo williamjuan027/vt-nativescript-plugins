@@ -1,9 +1,11 @@
-import { EventData, Page, File, Frame, StackLayout, GridLayout, Color, Label, Image, alert } from '@nativescript/core';
+import { EventData, Page, File, Frame, StackLayout, GridLayout, Color, Label, Image, alert, isAndroid, isIOS, knownFolders, Utils } from '@nativescript/core';
 import { DemoSharedFilepicker } from '@demo/shared';
 import { filePicker, galleryPicker, MediaType, getFreeMBs } from '@angelengineering/filepicker';
 import { CheckBox } from '@nstudio/nativescript-checkbox';
 import { TempFile } from '@angelengineering/filepicker/files';
 import { check as checkPermission, request as requestPermission } from '@nativescript-community/perms';
+import { FFmpeg } from '@triniwiz/nativescript-ffmpeg';
+import { Video } from 'nativescript-videoplayer';
 
 export function navigatingTo(args: EventData) {
   const page = <Page>args.object;
@@ -56,6 +58,59 @@ export class DemoModel extends DemoSharedFilepicker {
     }
   }
 
+  transcodeVideo(file: File): void {
+    const inputFileType = file.extension.replace(/^\./, '');
+    const outputPath = this.getPath('transcoded', `.${inputFileType}`);
+    if (File.exists(outputPath)) {
+      File.fromPath(outputPath).removeSync();
+    }
+    console.log('-- outputPath', outputPath);
+    let duration = 0;
+    FFmpeg.resetStatistics();
+    FFmpeg.disableLogs();
+
+    FFmpeg.enableStatisticsCallback((statisticsData) => {
+      const time = statisticsData.time;
+      const percentage = (time / 1000 / duration) * 100;
+      console.log('Percent completed', percentage);
+    });
+    FFmpeg.executeWithArguments(['-i', file.path, '-vcodec', 'libx264', '-profile:v', 'baseline', '-level', '30', '-preset', 'veryfast', '-r', '15', '-g', '15', outputPath])
+      .then((result) => {
+        const compressedFile = File.fromPath(outputPath);
+        const size = compressedFile ? compressedFile.size : 0;
+        this.displayVideo(file, File.fromPath(outputPath));
+      })
+      .catch((error) => {
+        console.log('Error', error);
+      });
+  }
+
+  transcodeAudio(file: File): void {
+    const inputFileType = file.extension.replace(/^\./, '');
+    const outputPath = this.getPath('transcoded', `.${inputFileType}`);
+    if (File.exists(outputPath)) {
+      File.fromPath(outputPath).removeSync();
+    }
+    let duration = 0;
+    FFmpeg.resetStatistics();
+    FFmpeg.disableLogs();
+
+    FFmpeg.enableStatisticsCallback((statisticsData) => {
+      const time = statisticsData.time;
+      const percentage = (time / 1000 / duration) * 100;
+      console.log('Percent completed', percentage);
+    });
+    FFmpeg.executeWithArguments(['-i', file.path, '-vn', '-ac', '2', outputPath])
+      .then((result) => {
+        const compressedFile = File.fromPath(outputPath);
+        const size = compressedFile ? compressedFile.size : 0;
+        this.displayVideo(file, File.fromPath(outputPath));
+      })
+      .catch((error) => {
+        console.log('Error', error);
+      });
+  }
+
   async pickAudio() {
     let pickedFiles: File[];
     const checkBox: CheckBox = Frame.topmost().getViewById('demoCheckbox');
@@ -64,7 +119,8 @@ export class DemoModel extends DemoSharedFilepicker {
     } catch (err) {
       if (err) alert(err?.message);
     } finally {
-      this.handleFiles(pickedFiles);
+      // this.handleFiles(pickedFiles);
+      this.transcodeAudio(pickedFiles[0]);
     }
   }
 
@@ -106,12 +162,87 @@ export class DemoModel extends DemoSharedFilepicker {
             } catch (err) {
               if (err) alert(err?.message);
             } finally {
-              this.handleFiles(pickedFiles);
+              const pickedFile = pickedFiles[0];
+              if (['.mp4', '.mov', '.m4a'].includes(pickedFile.extension)) {
+                this.transcodeVideo(pickedFile);
+              } else {
+                this.handleFiles(pickedFiles);
+              }
             }
           } else alert("No permission for files, can't open picker");
         });
       } else alert("No permission for files, can't open  Grant this permission in app settings first");
     });
+  }
+
+  getSizeInMb(size: number, decimals: number = 2): string {
+    if (!size) return '0 Bytes';
+
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+
+    const i = Math.floor(Math.log(size) / Math.log(k));
+
+    return `${parseFloat((size / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+  }
+  displayVideo(og: File, compressed: File): void {
+    const itemList: StackLayout = Frame.topmost().getViewById('pickedFiles');
+    itemList.removeChildren();
+    const fileContainer = new GridLayout();
+    fileContainer['rows'] = 'auto, auto, auto';
+    fileContainer['columns'] = '*, 8, *';
+    fileContainer['padding'] = 5;
+    fileContainer['margin'] = '1 5';
+    fileContainer['borderBottomColor'] = new Color('black');
+    fileContainer['borderBottomWidth'] = 1;
+
+    const videoLabelOg = new Label();
+    videoLabelOg.text = 'Original';
+    videoLabelOg.fontSize = 16;
+    videoLabelOg.row = 0;
+    videoLabelOg.col = 0;
+    fileContainer.addChild(videoLabelOg);
+
+    const videoSizeOg = new Label();
+    videoSizeOg.text = `Size: ${(this, this.getSizeInMb(og.size))}`;
+    videoSizeOg.fontSize = 14;
+    videoSizeOg.row = 1;
+    videoSizeOg.col = 0;
+    fileContainer.addChild(videoSizeOg);
+
+    const ogVideo = new Video();
+    ogVideo.height = 300;
+    ogVideo.src = og.path;
+    ogVideo.backgroundColor = new Color('#dedede');
+    ogVideo.borderRadius = 5;
+    ogVideo.row = 3;
+    ogVideo.col = 0;
+    fileContainer.addChild(ogVideo);
+
+    const videoLabelCompressed = new Label();
+    videoLabelCompressed.text = 'Compressed';
+    videoLabelCompressed.fontSize = 16;
+    videoLabelCompressed.row = 0;
+    videoLabelCompressed.col = 2;
+    fileContainer.addChild(videoLabelCompressed);
+
+    const videoSizeCompressed = new Label();
+    videoSizeCompressed.text = `Size: ${(this, this.getSizeInMb(compressed.size))}`;
+    videoSizeCompressed.fontSize = 14;
+    videoSizeCompressed.row = 1;
+    videoSizeCompressed.col = 2;
+    fileContainer.addChild(videoSizeCompressed);
+
+    const compressedVideo = new Video();
+    compressedVideo.height = 300;
+    compressedVideo.src = compressed.path;
+    compressedVideo.backgroundColor = new Color('#dedede');
+    compressedVideo.borderRadius = 5;
+    compressedVideo.row = 3;
+    compressedVideo.col = 2;
+    fileContainer.addChild(compressedVideo);
+    itemList.addChild(fileContainer);
   }
 
   handleFiles(results: File[]): void {
@@ -162,5 +293,19 @@ export class DemoModel extends DemoSharedFilepicker {
         fileContainer.addChild(previewImage);
         itemList.addChild(fileContainer);
       });
+  }
+
+  getPath(prefix: string, suffix: string): string {
+    let path: string = null;
+    if (isAndroid) {
+      const context = Utils.android.getApplicationContext();
+      const dir = context.getExternalCacheDir() || context.getCacheDir();
+      const file = java.io.File.createTempFile(prefix, suffix, dir);
+      path = file.getAbsolutePath();
+    } else if (isIOS) {
+      const name: string = NSUUID.UUID().UUIDString;
+      path = knownFolders.temp().getFile(prefix + name + suffix).path;
+    }
+    return path;
   }
 }
